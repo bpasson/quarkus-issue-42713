@@ -2,8 +2,8 @@ package org.acme;
 
 import io.quarkus.oidc.OidcRequestContext;
 import io.quarkus.oidc.OidcTenantConfig;
+import io.quarkus.oidc.OidcTenantConfigBuilder;
 import io.quarkus.oidc.TenantConfigResolver;
-import io.quarkus.oidc.common.runtime.OidcConstants;
 import io.quarkus.oidc.runtime.OidcConfig;
 import io.quarkus.oidc.runtime.OidcUtils;
 import io.smallrye.mutiny.Uni;
@@ -28,63 +28,72 @@ public class DynamicTenantResolver implements TenantConfigResolver {
     public Uni<OidcTenantConfig> resolve(RoutingContext context, OidcRequestContext<OidcTenantConfig> requestContext) {
         String resolvedClientId = context.get(OidcUtils.TENANT_ID_ATTRIBUTE);
         String clientId = context.request().headers().get(HEADER_TENANT_ID);
+
         log.info("resolvedClientId = {}, headerClientId = {}", resolvedClientId, clientId);
+
+        if( resolvedClientId == null && clientId == null ) {
+            log.warn("Not tenant resolved and no header provided, defaulting to 'quarkus-app'");
+            clientId = "quarkus-app";
+        }
+
         if (clientId != null && !clientId.equals(resolvedClientId)) {
+            context.put(OidcUtils.TENANT_ID_ATTRIBUTE, clientId);
             return Uni.createFrom().item(createTenantConfig(clientId));
         }
 
-        // fallback to whatever was resolved earlier or default
-        return null;
+        // fallback to whatever was resolved earlier
+        return Uni.createFrom().item(createTenantConfig(resolvedClientId));
     }
 
     private Supplier<OidcTenantConfig> createTenantConfig(String clientId) {
 
-        OidcTenantConfig defaultTenant = oidcConfig.defaultTenant;
-        OidcTenantConfig config = new OidcTenantConfig();
+        io.quarkus.oidc.runtime.OidcTenantConfig defaultTenant = OidcConfig.getDefaultTenant(oidcConfig);
+        OidcTenantConfigBuilder config = new OidcTenantConfigBuilder();
 
-        config.setAuthentication(defaultTenant.getAuthentication());
-        config.setApplicationType(OidcTenantConfig.ApplicationType.WEB_APP);
-        defaultTenant.getAuthServerUrl().ifPresent(config::setAuthServerUrl);
-        config.setAllowTokenIntrospectionCache(defaultTenant.isAllowTokenIntrospectionCache());
-        defaultTenant.getAuthorizationPath().ifPresent(config::setAuthorizationPath);
-        config.setAllowUserInfoCache(defaultTenant.isAllowUserInfoCache());
+        config.authentication(defaultTenant.authentication());
+        defaultTenant.applicationType().ifPresent(config::applicationType);
+        defaultTenant.authServerUrl().ifPresent(config::authServerUrl);
+        config.allowTokenIntrospectionCache(defaultTenant.allowTokenIntrospectionCache());
+        defaultTenant.authorizationPath().ifPresent(config::authorizationPath);
+        config.allowUserInfoCache(defaultTenant.allowUserInfoCache());
 
-        config.setCredentials(defaultTenant.getCredentials());
-        config.setClientId(clientId);
-        config.setCertificateChain(defaultTenant.getCertificateChain());
-        config.setCodeGrant(defaultTenant.getCodeGrant());
-        config.setClientName(clientId);
-        defaultTenant.isCacheUserInfoInIdtoken().ifPresent(config::setCacheUserInfoInIdtoken);
-        defaultTenant.getConnectionDelay().ifPresent(config::setConnectionDelay);
-        config.setConnectionTimeout(defaultTenant.getConnectionTimeout());
+        config.credentials(defaultTenant.credentials());
+        config.clientId(clientId);
+        config.certificateChain(defaultTenant.certificateChain());
+        config.codeGrant(defaultTenant.codeGrant());
+        config.clientName(clientId);
+        defaultTenant.cacheUserInfoInIdtoken().ifPresent(config::cacheUserInfoInIdtoken);
+        defaultTenant.connectionDelay().ifPresent(config::connectionDelay);
+        config.connectionTimeout(defaultTenant.connectionTimeout());
 
-        defaultTenant.isDiscoveryEnabled().ifPresent(config::setDiscoveryEnabled);
+        defaultTenant.discoveryEnabled().ifPresent(config::discoveryEnabled);
 
-        defaultTenant.getEndSessionPath().ifPresent(config::setEndSessionPath);
+        defaultTenant.endSessionPath().ifPresent(config::endSessionPath);
 
-        config.setIntrospectionCredentials(defaultTenant.getIntrospectionCredentials());
-        defaultTenant.getIntrospectionPath().ifPresent(config::setIntrospectionPath);
+        config.introspectionCredentials(defaultTenant.introspectionCredentials());
+        defaultTenant.introspectionPath().ifPresent(config::introspectionPath);
 
-        defaultTenant.getJwksPath().ifPresent(config::setJwksPath);
+        defaultTenant.jwksPath().ifPresent(config::jwksPath);
 
-        config.setLogout(defaultTenant.getLogout());
+        config.logout(defaultTenant.logout());
 
-        defaultTenant.getMaxPoolSize().ifPresent(config::setMaxPoolSize);
+        defaultTenant.maxPoolSize().ifPresent(config::maxPoolSize);
 
-        defaultTenant.getProvider().ifPresent(config::setProvider);
-        config.setProxy(defaultTenant.getProxy());
-        defaultTenant.getPublicKey().ifPresent(config::setPublicKey);
+        defaultTenant.provider().ifPresent(config::provider);
+        config.proxy(defaultTenant.proxy().host().orElse(null), defaultTenant.proxy().port(), defaultTenant.proxy().username().orElse(null), defaultTenant.proxy().password().orElse(null));
 
-        config.setRoles(defaultTenant.getRoles());
-        defaultTenant.getRevokePath().ifPresent(config::setRevokePath);
+        defaultTenant.publicKey().ifPresent(config::publicKey);
 
-        config.setTenantId(clientId);
-        config.setTenantEnabled(true);
-        config.setToken(defaultTenant.getToken());
-        defaultTenant.getTokenPath().ifPresent(config::setTokenPath);
+        config.roles(defaultTenant.roles());
+        defaultTenant.revokePath().ifPresent(config::revokePath);
 
-        defaultTenant.getUserInfoPath().ifPresent(config::setUserInfoPath);
+        config.tenantId(clientId);
+        config.tenantEnabled(true);
+        config.token(defaultTenant.token());
+        defaultTenant.tokenPath().ifPresent(config::tokenPath);
 
-        return () -> config;
+        defaultTenant.userInfoPath().ifPresent(config::userInfoPath);
+
+        return config::build;
     }
 }
